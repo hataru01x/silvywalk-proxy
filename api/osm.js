@@ -8,33 +8,45 @@ export default async function handler(req, res) {
   const { lat, lng, r } = req.query;
   if (!lat || !lng) { res.status(400).json({ error: 'lat e lng richiesti' }); return; }
 
-  const radius = r || 8000;
-  const bbox_offset = (radius / 111000);
-  const minlat = parseFloat(lat) - bbox_offset;
-  const maxlat = parseFloat(lat) + bbox_offset;
-  const minlon = parseFloat(lng) - bbox_offset;
-  const maxlon = parseFloat(lng) + bbox_offset;
+  const radius = parseInt(r) || 8000;
 
-  // Usa OSM API invece di Overpass — molto più veloce
-  // Cerca rifugi e punti interesse con bbox
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=30&bounded=1&viewbox=${minlon},${maxlat},${maxlon},${minlat}&q=rifugio+sentiero&accept-language=it`;
-    
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'SilvyWalk/1.0 hiking app',
-        'Accept': 'application/json',
-      },
-      signal: AbortSignal.timeout(8000),
-    });
+  // Query ultra leggera — solo nomi, niente geometria
+  const query = `[out:json][timeout:9];(node["tourism"~"alpine_hut|wilderness_hut"]["name"](around:${radius},${lat},${lng});node["natural"="peak"]["name"](around:${radius},${lat},${lng});node["mountain_pass"="yes"]["name"](around:${radius},${lat},${lng});way["highway"="path"]["name"](around:${radius},${lat},${lng});way["highway"="track"]["name"]["sac_scale"](around:${radius},${lat},${lng}););out ids tags center qt;`;
 
-    if (!response.ok) throw new Error(`Status ${response.status}`);
-    const data = await response.json();
-    res.status(200).json({ elements: data, source: 'nominatim' });
-    return;
-  } catch (e) {
-    console.log('Nominatim error:', e.message);
+  const servers = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  ];
+
+  for (const server of servers) {
+    try {
+      const response = await fetch(server, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json',
+          'User-Agent': 'SilvyWalk/1.0',
+        },
+        body: `data=${encodeURIComponent(query)}`,
+        signal: AbortSignal.timeout(9000),
+      });
+      if (!response.ok) {
+        console.log(server, 'status:', response.status);
+        continue;
+      }
+      const text = await response.text();
+      if (text.startsWith('<')) continue;
+      const data = JSON.parse(text);
+      console.log('OK da', server, '- elementi:', data.elements?.length);
+      res.status(200).json(data);
+      return;
+    } catch (e) {
+      console.log(server, 'error:', e.message);
+      continue;
+    }
   }
 
-  res.status(500).json({ error: 'Servizio non disponibile' });
+  res.status(500).json({ error: 'Server non disponibile' });
 }
