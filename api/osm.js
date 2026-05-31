@@ -1,23 +1,33 @@
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', '*');
+export const config = {
+  runtime: 'edge',
+};
 
-  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+export default async function handler(req) {
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Content-Type': 'application/json',
+  };
 
-  const { lat, lng, r } = req.query;
-  if (!lat || !lng) { res.status(400).json({ error: 'lat e lng richiesti' }); return; }
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers });
+  }
 
-  const radius = parseInt(r) || 8000;
+  const { searchParams } = new URL(req.url);
+  const lat = searchParams.get('lat');
+  const lng = searchParams.get('lng');
+  const r = searchParams.get('r') || '8000';
 
-  // Query ultra leggera — solo nomi, niente geometria
-  const query = `[out:json][timeout:9];(node["tourism"~"alpine_hut|wilderness_hut"]["name"](around:${radius},${lat},${lng});node["natural"="peak"]["name"](around:${radius},${lat},${lng});node["mountain_pass"="yes"]["name"](around:${radius},${lat},${lng});way["highway"="path"]["name"](around:${radius},${lat},${lng});way["highway"="track"]["name"]["sac_scale"](around:${radius},${lat},${lng}););out ids tags center qt;`;
+  if (!lat || !lng) {
+    return new Response(JSON.stringify({ error: 'lat e lng richiesti' }), { headers, status: 400 });
+  }
+
+  const query = `[out:json][timeout:9];(node["tourism"~"alpine_hut|wilderness_hut"]["name"](around:${r},${lat},${lng});node["natural"="peak"]["name"](around:${r},${lat},${lng});node["mountain_pass"="yes"]["name"](around:${r},${lat},${lng});way["highway"="path"]["name"](around:${r},${lat},${lng});way["highway"="track"]["name"]["sac_scale"](around:${r},${lat},${lng}););out ids tags center qt;`;
 
   const servers = [
-    'https://overpass-api.de/api/interpreter',
     'https://overpass.kumi.systems/api/interpreter',
     'https://overpass.private.coffee/api/interpreter',
-    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+    'https://overpass-api.de/api/interpreter',
   ];
 
   for (const server of servers) {
@@ -32,21 +42,15 @@ export default async function handler(req, res) {
         body: `data=${encodeURIComponent(query)}`,
         signal: AbortSignal.timeout(9000),
       });
-      if (!response.ok) {
-        console.log(server, 'status:', response.status);
-        continue;
-      }
+
+      if (!response.ok) continue;
       const text = await response.text();
-      if (text.startsWith('<')) continue;
-      const data = JSON.parse(text);
-      console.log('OK da', server, '- elementi:', data.elements?.length);
-      res.status(200).json(data);
-      return;
+      if (text.startsWith('<') || text.startsWith('Error')) continue;
+      return new Response(text, { headers, status: 200 });
     } catch (e) {
-      console.log(server, 'error:', e.message);
       continue;
     }
   }
 
-  res.status(500).json({ error: 'Server non disponibile' });
+  return new Response(JSON.stringify({ error: 'Server non disponibile' }), { headers, status: 500 });
 }
