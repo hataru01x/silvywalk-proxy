@@ -15,7 +15,22 @@ export default async function handler(req, res) {
   }
 
   const radius = r || 5000;
-  const query = `[out:json][timeout:15];way["highway"~"path|track"]["name"](around:${radius},${lat},${lng});out geom qt;`;
+
+  // Query unificata — sentieri + rifugi + punti interesse montagna
+  const query = `
+    [out:json][timeout:25];
+    (
+      way["highway"~"path|track"]["name"](around:${radius},${lat},${lng});
+      node["tourism"="alpine_hut"](around:${radius},${lat},${lng});
+      node["tourism"="wilderness_hut"](around:${radius},${lat},${lng});
+      node["amenity"="shelter"]["name"](around:${radius},${lat},${lng});
+      node["mountain_pass"="yes"]["name"](around:${radius},${lat},${lng});
+      node["natural"="peak"]["name"](around:${radius},${lat},${lng});
+    );
+    out body qt;
+    way["highway"~"path|track"]["name"](around:${radius},${lat},${lng});
+    out geom qt;
+  `;
 
   const servers = [
     'https://overpass-api.de/api/interpreter',
@@ -30,10 +45,10 @@ export default async function handler(req, res) {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           'Accept': 'application/json',
-          'User-Agent': 'SilvyWalk/1.0 (hiking trails app)',
+          'User-Agent': 'SilvyWalk/1.0 hiking trails app',
         },
         body: `data=${encodeURIComponent(query)}`,
-        signal: AbortSignal.timeout(14000),
+        signal: AbortSignal.timeout(24000),
       });
 
       if (!response.ok) {
