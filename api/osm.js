@@ -14,23 +14,9 @@ export default async function handler(req, res) {
     return;
   }
 
-  const radius = r || 5000;
+  const radius = r || 8000;
 
-  // Query unificata — sentieri + rifugi + punti interesse montagna
-  const query = `
-    [out:json][timeout:25];
-    (
-      way["highway"~"path|track"]["name"](around:${radius},${lat},${lng});
-      node["tourism"="alpine_hut"](around:${radius},${lat},${lng});
-      node["tourism"="wilderness_hut"](around:${radius},${lat},${lng});
-      node["amenity"="shelter"]["name"](around:${radius},${lat},${lng});
-      node["mountain_pass"="yes"]["name"](around:${radius},${lat},${lng});
-      node["natural"="peak"]["name"](around:${radius},${lat},${lng});
-    );
-    out body qt;
-    way["highway"~"path|track"]["name"](around:${radius},${lat},${lng});
-    out geom qt;
-  `;
+  const query = `[out:json][timeout:8];(way["highway"~"path|track"]["name"](around:${radius},${lat},${lng});node["tourism"="alpine_hut"](around:${radius},${lat},${lng});node["tourism"="wilderness_hut"](around:${radius},${lat},${lng});node["natural"="peak"]["name"](around:${radius},${lat},${lng});node["mountain_pass"="yes"]["name"](around:${radius},${lat},${lng}););out body qt;way["highway"~"path|track"]["name"](around:${radius},${lat},${lng});out geom qt;`;
 
   const servers = [
     'https://overpass-api.de/api/interpreter',
@@ -45,29 +31,22 @@ export default async function handler(req, res) {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           'Accept': 'application/json',
-          'User-Agent': 'SilvyWalk/1.0 hiking trails app',
+          'User-Agent': 'SilvyWalk/1.0',
         },
         body: `data=${encodeURIComponent(query)}`,
-        signal: AbortSignal.timeout(24000),
+        signal: AbortSignal.timeout(8000),
       });
 
-      if (!response.ok) {
-        console.log(`${server} status: ${response.status}`);
-        continue;
-      }
-
+      if (!response.ok) continue;
       const text = await response.text();
       if (text.startsWith('<')) continue;
-
       const data = JSON.parse(text);
       res.status(200).json(data);
       return;
-
     } catch (e) {
-      console.log(`${server} error: ${e.message}`);
       continue;
     }
   }
 
-  res.status(500).json({ error: 'Tutti i server Overpass non disponibili' });
+  res.status(500).json({ error: 'Server non disponibile' });
 }
